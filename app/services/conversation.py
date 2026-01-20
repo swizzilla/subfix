@@ -146,11 +146,16 @@ class ConversationManager:
 
         # Upload flow - only audio now
         if state == "awaiting_audio":
+            # Allow "add" command even while waiting for audio
+            if message_lower in ["add", "add account"]:
+                self.conversation.state = "adding_account"
+                self.db.commit()
+                return "Enter a name for this account (e.g. MusicChannel):"
             if audio_path:
                 self.conversation.audio_path = audio_path
                 return self._handle_audio_upload()
             else:
-                return "Please send an audio file."
+                return "Please send an audio file. (Or type 'cancel' to go back, 'add' to add account)"
         elif state == "awaiting_account":
             return self._handle_awaiting_account(message_lower)
         elif state == "awaiting_title":

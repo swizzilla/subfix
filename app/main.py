@@ -34,7 +34,7 @@ app = FastAPI(
     debug=DEBUG,
 )
 
-# Routers - only including OAuth and MTProto (removed traditional telegram router)
+# Routers
 app.include_router(oauth.router, prefix="/oauth", tags=["OAuth"])
 app.include_router(mtproto_router, prefix="/mtproto", tags=["MTProto Telegram"])
 

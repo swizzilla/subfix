@@ -36,8 +36,8 @@ class TelegramMTProtoClient:
         
         logger.info("Telethon client started successfully")
         
-        # Add event handler for incoming messages
-        @self.client.on(events.NewMessage)
+        # Add event handler for incoming messages only (incoming=True prevents bot from processing its own outgoing messages)
+        @self.client.on(events.NewMessage(incoming=True))
         async def handler(event):
             await self.handle_incoming_message(event)
             
