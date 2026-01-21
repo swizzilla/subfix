@@ -8,6 +8,7 @@ from app.database import Account
 from app.services.video import process_uploaded_audio, cleanup_temp_files
 from app.services.youtube import upload_video, get_authorization_url
 from app.config import GOOGLE_CLIENT_ID
+from app.services.telethon_client import mtproto_client
 
 router = APIRouter()
 
@@ -165,6 +166,21 @@ async def telegram_webhook(request: Request, background_tasks: BackgroundTasks, 
         print(f"Unauthorized access attempt from chat_id: {chat_id}")
         print(f"Configured allowed_chat_ids: {ALLOWED_TELEGRAM_CHAT_IDS}")
         return {"status": "unauthorized"}
+
+    # Handle MTProto authentication codes/passwords via Bot API messages
+    if text and mtproto_client.waiting_for_code:
+        # Check if the message looks like a code (digits only, 5-6 chars)
+        clean_text = text.strip().replace(" ", "").replace("-", "")
+        if clean_text.isdigit() and 4 <= len(clean_text) <= 8:
+            mtproto_client.submit_code(clean_text)
+            await send_telegram_message(chat_id, "✅ Code received! Authenticating...")
+            return {"status": "ok"}
+
+    if text and mtproto_client.waiting_for_password:
+        # Any text message while waiting for password is treated as the password
+        mtproto_client.submit_password(text.strip())
+        await send_telegram_message(chat_id, "✅ Password received! Authenticating...")
+        return {"status": "ok"}
 
     # Check Google OAuth is configured
     if not GOOGLE_CLIENT_ID:

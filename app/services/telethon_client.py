@@ -5,7 +5,8 @@ from app.config import (
     TELEGRAM_API_ID,
     TELEGRAM_API_HASH,
     TELEGRAM_PHONE_NUMBER,
-    ALLOWED_TELEGRAM_CHAT_IDS
+    ALLOWED_TELEGRAM_CHAT_IDS,
+    TELEGRAM_TOKEN,
 )
 from app.database import get_db
 from app.services.conversation import ConversationManager
@@ -14,6 +15,8 @@ from app.services.youtube import upload_video
 import tempfile
 import os
 import logging
+import asyncio
+import httpx
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -27,13 +30,102 @@ class TelegramMTProtoClient:
         self.client = TelegramClient('dawah_session', self.api_id, self.api_hash)
         self.is_running = False
 
+        # Authentication state
+        self.pending_code = None
+        self.pending_password = None
+        self.auth_code_event = asyncio.Event()
+        self.auth_password_event = asyncio.Event()
+        self.waiting_for_code = False
+        self.waiting_for_password = False
+
+    async def _send_bot_api_message(self, message: str):
+        """Send a message via Bot API to all allowed chat IDs"""
+        if not TELEGRAM_TOKEN:
+            logger.warning("No TELEGRAM_TOKEN configured, cannot send Bot API message")
+            return
+
+        async with httpx.AsyncClient() as client:
+            for chat_id in self.allowed_chat_ids:
+                try:
+                    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                    await client.post(url, json={
+                        "chat_id": chat_id,
+                        "text": message,
+                        "parse_mode": "HTML"
+                    })
+                    logger.info(f"Sent Bot API message to {chat_id}")
+                except Exception as e:
+                    logger.error(f"Failed to send Bot API message to {chat_id}: {e}")
+
+    async def _code_callback(self):
+        """Callback for Telethon to get the verification code"""
+        self.waiting_for_code = True
+        self.auth_code_event.clear()
+
+        # Notify user via Bot API
+        await self._send_bot_api_message(
+            "🔐 <b>Telegram Authentication Required</b>\n\n"
+            "A verification code has been sent to your Telegram app.\n\n"
+            "Please reply with the code here, or visit:\n"
+            "<code>/auth/code?code=YOUR_CODE</code>"
+        )
+
+        logger.info("Waiting for verification code... (send via Telegram or /auth/code endpoint)")
+
+        # Wait for the code to be submitted
+        await self.auth_code_event.wait()
+
+        self.waiting_for_code = False
+        code = self.pending_code
+        self.pending_code = None
+        return code
+
+    async def _password_callback(self):
+        """Callback for Telethon to get 2FA password"""
+        self.waiting_for_password = True
+        self.auth_password_event.clear()
+
+        # Notify user via Bot API
+        await self._send_bot_api_message(
+            "🔐 <b>Two-Factor Authentication Required</b>\n\n"
+            "Your account has 2FA enabled.\n\n"
+            "Please reply with your 2FA password here, or visit:\n"
+            "<code>/auth/password?password=YOUR_PASSWORD</code>"
+        )
+
+        logger.info("Waiting for 2FA password... (send via Telegram or /auth/password endpoint)")
+
+        # Wait for the password to be submitted
+        await self.auth_password_event.wait()
+
+        self.waiting_for_password = False
+        password = self.pending_password
+        self.pending_password = None
+        return password
+
+    def submit_code(self, code: str):
+        """Submit the verification code (called from API endpoint or message handler)"""
+        self.pending_code = code.strip()
+        self.auth_code_event.set()
+        logger.info("Verification code received")
+
+    def submit_password(self, password: str):
+        """Submit the 2FA password (called from API endpoint or message handler)"""
+        self.pending_password = password
+        self.auth_password_event.set()
+        logger.info("2FA password received")
+
     async def start_client(self):
         """Start the Telethon client and handle authorization"""
-        await self.client.start(phone=self.phone_number)
-        
+        await self.client.start(
+            phone=self.phone_number,
+            code_callback=self._code_callback,
+            password=self._password_callback
+        )
+
         if not await self.client.is_user_authorized():
             raise Exception("User is not authorized. Please authenticate manually.")
-        
+
         logger.info("Telethon client started successfully")
         
         # Add event handler for incoming messages only (incoming=True prevents bot from processing its own outgoing messages)

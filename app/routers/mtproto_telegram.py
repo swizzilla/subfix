@@ -85,3 +85,33 @@ async def start_mtproto():
         return {"status": "MTProto client started successfully"}
     except Exception as e:
         return {"error": str(e)}
+
+
+@router.get("/auth/code")
+async def submit_auth_code(code: str):
+    """Submit the Telegram verification code"""
+    if not mtproto_client.waiting_for_code:
+        return {"error": "Not waiting for a verification code"}
+
+    mtproto_client.submit_code(code)
+    return {"status": "Code submitted successfully. Authentication in progress..."}
+
+
+@router.get("/auth/password")
+async def submit_auth_password(password: str):
+    """Submit the 2FA password"""
+    if not mtproto_client.waiting_for_password:
+        return {"error": "Not waiting for a 2FA password"}
+
+    mtproto_client.submit_password(password)
+    return {"status": "Password submitted successfully. Authentication in progress..."}
+
+
+@router.get("/auth/status")
+async def auth_status():
+    """Check the current authentication status"""
+    return {
+        "is_running": mtproto_client.is_running,
+        "waiting_for_code": mtproto_client.waiting_for_code,
+        "waiting_for_password": mtproto_client.waiting_for_password,
+    }
