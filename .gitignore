@@ -1,6 +1,6 @@
 # Environment
 
-
+/.env
 # Credentials (sensitive!)
 credentials/
 *.pickle

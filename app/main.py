@@ -13,16 +13,22 @@ from app.routers.mtproto_telegram import router as mtproto_router
 async def lifespan(app: FastAPI):
     """Initialize database and setup MTProto client on startup"""
     init_db()
-    
-    # Setup MTProto client instead of registering webhook for bot API
-    try:
-        from app.services.telethon_client import mtproto_client
-        # Starting the MTProto client
-        await mtproto_client.start_client()
-        print("✅ MTProto client initialized successfully")
-    except Exception as e:
-        print(f"❌ Failed to initialize MTProto client: {str(e)}")
-    
+
+    # Setup MTProto client in background so HTTP server can start immediately
+    # This allows the /auth/code endpoint to receive the verification code
+    from app.services.telethon_client import mtproto_client
+
+    async def start_mtproto_background():
+        try:
+            await mtproto_client.start_client()
+            print("✅ MTProto client initialized successfully")
+        except Exception as e:
+            print(f"❌ Failed to initialize MTProto client: {str(e)}")
+
+    # Start in background - don't await
+    asyncio.create_task(start_mtproto_background())
+    print("🔄 MTProto client starting in background...")
+
     yield
 
 
